@@ -1,7 +1,7 @@
 defmodule MyChatAppWeb.ChatLive do
   use MyChatAppWeb, :live_view
 
-  alias MyChatApp.Chat.{RoomServer, RoomManager, Presence}
+  alias MyChatApp.Chat.{RoomServer, RoomManager, Presence, Messages}
 
   @typing_timeout 2_000
 
@@ -21,9 +21,9 @@ defmodule MyChatAppWeb.ChatLive do
         })
 
         RoomServer.post_message(room_id, %{
-          user:    "system",
-          text:    "#{username} joined",
-          system?: true
+          username: "system",
+          content:  "#{username} joined",
+          type:     "system"
         })
       end
 
@@ -32,24 +32,31 @@ defmodule MyChatAppWeb.ChatLive do
         s           -> s
       end
 
+      oldest_id = state.messages |> List.first() |> case do
+        nil -> nil
+        msg -> msg.id
+      end
+
       {:ok,
         assign(socket,
-          room_id:      room_id,
-          username:     username,
-          messages:     state.messages,
-          typing:       state.typing,
-          online_users: [],
-          draft:        "",
-          typing_ref:   nil
+          room_id:           room_id,
+          username:          username,
+          messages:          state.messages,
+          typing:            state.typing,
+          online_users:      [],
+          draft:             "",
+          typing_ref:        nil,
+          oldest_message_id: oldest_id,
+          all_loaded:        length(state.messages) < 50
         )}
     end
   end
 
   def terminate(_reason, %{assigns: %{room_id: room_id, username: username}} = _socket) do
     RoomServer.post_message(room_id, %{
-      user:    "system",
-      text:    "#{username} left",
-      system?: true
+      username: "system",
+      content:  "#{username} left",
+      type:     "system"
     })
     RoomServer.set_typing(room_id, username, false)
   end
@@ -60,13 +67,30 @@ defmodule MyChatAppWeb.ChatLive do
     text = String.trim(text)
     if String.length(text) > 0 do
       RoomServer.post_message(socket.assigns.room_id, %{
-        user: socket.assigns.username,
-        text: text,
-        system?: false
+        username: socket.assigns.username,
+        content:  text,
+        type:     "user"
       })
       RoomServer.set_typing(socket.assigns.room_id, socket.assigns.username, false)
     end
     {:noreply, assign(socket, draft: "", typing_ref: nil)}
+  end
+
+  def handle_event("load_more", _params, socket) do
+    %{room_id: room_id, oldest_message_id: oldest_id, messages: messages} = socket.assigns
+    older = Messages.list_before(room_id, oldest_id)
+
+    case older do
+      [] ->
+        {:noreply, assign(socket, all_loaded: true)}
+      _ ->
+        new_oldest_id = older |> List.first() |> Map.get(:id)
+        {:noreply, assign(socket,
+          messages:          older ++ messages,
+          oldest_message_id: new_oldest_id,
+          all_loaded:        length(older) < 30
+        )}
+    end
   end
 
   def handle_event("typing", %{"value" => text}, socket) do
@@ -86,7 +110,9 @@ defmodule MyChatAppWeb.ChatLive do
   # --- Info ---
 
   def handle_info({:new_message, msg}, socket) do
-    {:noreply, assign(socket, messages: socket.assigns.messages ++ [msg])}
+    messages = socket.assigns.messages ++ [msg]
+    oldest_id = socket.assigns.oldest_message_id || msg.id
+    {:noreply, assign(socket, messages: messages, oldest_message_id: oldest_id)}
   end
 
   def handle_info({:typing_update, typing}, socket) do
@@ -128,23 +154,31 @@ defmodule MyChatAppWeb.ChatLive do
       <%!-- Messages --%>
       <div id="messages" class="flex-1 overflow-y-auto px-6 py-4 space-y-3"
            phx-hook="ScrollBottom">
+        <%= unless @all_loaded do %>
+          <div class="flex justify-center py-2">
+            <button phx-click="load_more"
+                    class="text-xs text-gray-400 hover:text-white border border-white/10 rounded-lg px-4 py-2 transition-colors">
+              Load older messages
+            </button>
+          </div>
+        <% end %>
         <%= for msg <- @messages do %>
-          <%= if msg.system? do %>
-            <div class="text-center text-xs text-gray-600 py-1"><%= msg.text %></div>
+          <%= if msg.type == "system" do %>
+            <div class="text-center text-xs text-gray-600 py-1"><%= msg.content %></div>
           <% else %>
-            <div class={["flex gap-3", if(msg.user == @username, do: "flex-row-reverse", else: "")]}>
+            <div class={["flex gap-3", if(msg.username == @username, do: "flex-row-reverse", else: "")]}>
               <div class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold shrink-0">
-                <%= String.first(msg.user) |> String.upcase() %>
+                <%= String.first(msg.username) |> String.upcase() %>
               </div>
-              <div class={["max-w-xs", if(msg.user == @username, do: "items-end", else: "items-start"), "flex flex-col gap-1"]}>
-                <span class="text-xs text-gray-500"><%= msg.user %></span>
+              <div class={["max-w-xs", if(msg.username == @username, do: "items-end", else: "items-start"), "flex flex-col gap-1"]}>
+                <span class="text-xs text-gray-500"><%= msg.username %></span>
                 <div class={[
                   "px-4 py-2 rounded-2xl text-sm leading-relaxed",
-                  if(msg.user == @username,
+                  if(msg.username == @username,
                     do: "bg-indigo-600 rounded-tr-sm",
                     else: "bg-gray-800 rounded-tl-sm")
                 ]}>
-                  <%= msg.text %>
+                  <%= msg.content %>
                 </div>
               </div>
             </div>

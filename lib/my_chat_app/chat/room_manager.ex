@@ -2,18 +2,19 @@ defmodule MyChatApp.Chat.RoomManager do
   use GenServer
 
   @fixed_rooms [
-    %{id: "general",   name: "#general",   description: "General chat"},
-    %{id: "elixir",    name: "#elixir",    description: "All things Elixir"},
-    %{id: "off-topic", name: "#off-topic", description: "Everything else"},
+    %{id: "general", name: "#general", description: "General chat"},
+    %{id: "elixir", name: "#elixir", description: "All things Elixir"},
+    %{id: "gleam", name: "#gleam", description: "All things Gleam"},
+    %{id: "off-topic", name: "#off-topic", description: "Everything else"}
   ]
 
   # --- Client API ---
 
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
 
-  def list_rooms,           do: GenServer.call(__MODULE__, :list_rooms)
+  def list_rooms, do: GenServer.call(__MODULE__, :list_rooms)
   def create_room(name, desc), do: GenServer.call(__MODULE__, {:create_room, name, desc})
-  def room_exists?(id),     do: GenServer.call(__MODULE__, {:exists?, id})
+  def room_exists?(id), do: GenServer.call(__MODULE__, {:exists?, id})
 
   # --- Callbacks ---
 
@@ -44,15 +45,20 @@ defmodule MyChatApp.Chat.RoomManager do
     else
       room = %{id: id, name: "##{name}", description: desc}
 
-      {:ok, _pid} = DynamicSupervisor.start_child(
-        MyChatApp.Chat.RoomSupervisor,
-        {MyApp.Chat.RoomServer, id}
-      )
+      {:ok, _pid} =
+        DynamicSupervisor.start_child(
+          MyChatApp.Chat.RoomSupervisor,
+          {MyChatApp.Chat.RoomServer, id}
+        )
 
       new_state = put_in(state.rooms[id], room)
 
       # notify lobby LiveViews
-      Phoenix.PubSub.broadcast(MyChatApp.PubSub, "rooms:lobby", {:rooms_updated, Map.values(new_state.rooms)})
+      Phoenix.PubSub.broadcast(
+        MyChatApp.PubSub,
+        "rooms:lobby",
+        {:rooms_updated, Map.values(new_state.rooms)}
+      )
 
       {:reply, {:ok, id}, new_state}
     end
@@ -61,6 +67,4 @@ defmodule MyChatApp.Chat.RoomManager do
   def handle_call({:exists?, id}, _from, state) do
     {:reply, Map.has_key?(state.rooms, id), state}
   end
-
-
 end

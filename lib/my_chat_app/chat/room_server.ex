@@ -1,6 +1,7 @@
 defmodule MyChatApp.Chat.RoomServer do
   use GenServer
-  @max_messages 100
+  alias MyChatApp.Chat.Messages
+  @max_messages 50
 
   # --- Client API ---
 
@@ -17,9 +18,10 @@ defmodule MyChatApp.Chat.RoomServer do
   # --- Callbacks ---
 
   def init(room_id) do
+    messages = Messages.list_recent(room_id, @max_messages)
     state = %{
       room_id:  room_id,
-      messages: [],
+      messages: Enum.reverse(messages),
       typing:   MapSet.new()
     }
     {:ok, state}
@@ -30,7 +32,12 @@ defmodule MyChatApp.Chat.RoomServer do
   end
 
   def handle_call({:post_message, msg}, _from, state) do
-    message = Map.put(msg, :id, System.unique_integer([:positive, :monotonic]))
+    {:ok, message} = Messages.insert(%{
+      room_id:  state.room_id,
+      username: msg.username,
+      content:  msg.content,
+      type:     Map.get(msg, :type, "user")
+    })
     messages = Enum.take([message | state.messages], @max_messages)
     new_state = %{state | messages: messages}
 
