@@ -19,7 +19,8 @@ defmodule MyChatApp.Chat.RoomManager do
   # --- Callbacks ---
 
   def init(_) do
-    rooms = @fixed_rooms |> Enum.map(&{&1.id, &1}) |> Map.new()
+    # rooms = Map.new(fixed_rooms, fn(room) -> {room.id, room} end)
+    rooms = Map.new(@fixed_rooms, &{&1.id, &1})
 
     # start a RoomServer for each fixed room
     Enum.each(@fixed_rooms, fn room ->

@@ -2,6 +2,7 @@ defmodule MyChatAppWeb.ChatLive do
   use MyChatAppWeb, :live_view
 
   alias MyChatApp.Chat.{RoomServer, RoomManager, Presence, Messages}
+  alias MyChatApp.Uploads
 
   @reaction_emojis ["👍", "❤️", "😂", "😮", "😢"]
 
@@ -39,8 +40,9 @@ defmodule MyChatAppWeb.ChatLive do
         msg -> msg.id
       end
 
-      {:ok,
-        assign(socket,
+      socket =
+        socket
+        |> assign(
           room_id:           room_id,
           username:          username,
           messages:          state.messages,
@@ -51,7 +53,14 @@ defmodule MyChatAppWeb.ChatLive do
           oldest_message_id: oldest_id,
           all_loaded:        length(state.messages) < 50,
           reaction_emojis:   @reaction_emojis
-        )}
+        )
+        |> allow_upload(:attachment,
+          accept: ~w(.jpg .jpeg .png .gif .webp .pdf),
+          max_entries: 1,
+          max_file_size: 10_000_000
+        )
+
+      {:ok, socket}
     end
   end
 
@@ -68,14 +77,24 @@ defmodule MyChatAppWeb.ChatLive do
 
   def handle_event("send_message", %{"text" => text}, socket) do
     text = String.trim(text)
-    if String.length(text) > 0 do
+
+    attachment_urls = consume_uploaded_entries(socket, :attachment, fn %{path: path}, entry ->
+      url = Uploads.upload!(path, entry.client_name, entry.client_type)
+      {:ok, url}
+    end)
+
+    attachment_url = List.first(attachment_urls)
+
+    if String.length(text) > 0 or attachment_url do
       RoomServer.post_message(socket.assigns.room_id, %{
-        username: socket.assigns.username,
-        content:  text,
-        type:     "user"
+        username:       socket.assigns.username,
+        content:        text,
+        type:           "user",
+        attachment_url: attachment_url
       })
       RoomServer.set_typing(socket.assigns.room_id, socket.assigns.username, false)
     end
+
     {:noreply, assign(socket, draft: "", typing_ref: nil)}
   end
 
@@ -94,6 +113,14 @@ defmodule MyChatAppWeb.ChatLive do
           all_loaded:        length(older) < 30
         )}
     end
+  end
+
+  def handle_event("validate_upload", _params, socket) do
+    {:noreply, socket}
+  end
+
+  def handle_event("cancel_upload", %{"ref" => ref}, socket) do
+    {:noreply, cancel_upload(socket, :attachment, ref)}
   end
 
   def handle_event("react", %{"id" => id, "emoji" => emoji}, socket) do
@@ -147,6 +174,12 @@ defmodule MyChatAppWeb.ChatLive do
       |> Map.keys()
     {:noreply, assign(socket, online_users: users)}
   end
+
+  # --- Helpers ---
+
+  defp upload_error_to_string(:too_large),     do: "File is too large (max 10 MB)"
+  defp upload_error_to_string(:too_many_files), do: "Only one file at a time"
+  defp upload_error_to_string(:not_accepted),  do: "Unsupported file type"
 
   # --- Render ---
 
@@ -207,6 +240,21 @@ defmodule MyChatAppWeb.ChatLive do
                     <% end %>
                   <% end %>
                 </div>
+                <%!-- Attachment --%>
+                <%= if msg[:attachment_url] do %>
+                  <%= if String.match?(msg.attachment_url, ~r/\.(jpg|jpeg|png|gif|webp)$/i) do %>
+                    <a href={msg.attachment_url} target="_blank" rel="noopener">
+                      <img src={msg.attachment_url}
+                           class="mt-1 max-w-xs rounded-xl border border-white/10 cursor-pointer hover:opacity-90 transition-opacity"
+                           alt="attachment" />
+                    </a>
+                  <% else %>
+                    <a href={msg.attachment_url} target="_blank" rel="noopener"
+                       class="flex items-center gap-2 mt-1 text-xs text-indigo-400 hover:text-indigo-300 underline">
+                      📎 Download file
+                    </a>
+                  <% end %>
+                <% end %>
                 <%!-- Timestamp --%>
                 <%= if msg[:inserted_at] do %>
                   <span class="text-xs text-gray-600">
@@ -259,7 +307,23 @@ defmodule MyChatAppWeb.ChatLive do
 
       <%!-- Input --%>
       <div class="px-6 py-4 border-t border-white/10 bg-gray-900">
-        <form phx-submit="send_message" class="flex gap-3">
+        <%!-- Upload preview --%>
+        <%= for entry <- @uploads.attachment.entries do %>
+          <div class="flex items-center gap-2 mb-2 text-sm text-gray-300">
+            <span class="truncate max-w-xs"><%= entry.client_name %></span>
+            <span class="text-gray-500 text-xs"><%= entry.progress %>%</span>
+            <button type="button" phx-click="cancel_upload" phx-value-ref={entry.ref}
+                    class="text-gray-500 hover:text-red-400 text-xs">✕</button>
+          </div>
+        <% end %>
+        <%= for err <- upload_errors(@uploads.attachment) do %>
+          <p class="text-red-400 text-xs mb-2"><%= upload_error_to_string(err) %></p>
+        <% end %>
+        <form phx-submit="send_message" phx-change="validate_upload" class="flex gap-3">
+          <label class="flex items-center justify-center w-11 h-11 rounded-xl bg-gray-800 border border-white/10 hover:border-white/30 cursor-pointer transition-colors shrink-0">
+            📎
+            <.live_file_input upload={@uploads.attachment} class="hidden" />
+          </label>
           <input
             name="text"
             value={@draft}

@@ -37,12 +37,13 @@ defmodule MyChatApp.Chat.Messages do
 
   defp to_map(%Message{} = m) do
     %{
-      id:          m.id,
-      room_id:     m.room_id,
-      username:    m.username,
-      content:     m.content,
-      type:        m.type,
-      inserted_at: m.inserted_at
+      id:             m.id,
+      room_id:        m.room_id,
+      username:       m.username,
+      content:        m.content,
+      type:           m.type,
+      inserted_at:    m.inserted_at,
+      attachment_url: m.attachment_url
     }
   end
 end

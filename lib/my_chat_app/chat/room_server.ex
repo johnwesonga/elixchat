@@ -36,10 +36,11 @@ defmodule MyChatApp.Chat.RoomServer do
 
   def handle_call({:post_message, msg}, _from, state) do
     {:ok, message} = Messages.insert(%{
-      room_id:  state.room_id,
-      username: msg.username,
-      content:  msg.content,
-      type:     Map.get(msg, :type, "user")
+      room_id:        state.room_id,
+      username:       msg.username,
+      content:        Map.get(msg, :content, ""),
+      type:           Map.get(msg, :type, "user"),
+      attachment_url: Map.get(msg, :attachment_url)
     })
     messages = Enum.take([message | state.messages], @max_messages)
     new_state = %{state | messages: messages}

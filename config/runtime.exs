@@ -53,6 +53,11 @@ if config_env() == :prod do
 
   config :my_chat_app, :dns_cluster_query, System.get_env("DNS_CLUSTER_QUERY")
 
+  config :ex_aws, region: System.get_env("AWS_REGION", "us-east-1")
+  config :my_chat_app, :s3_bucket,
+    System.get_env("AWS_S3_BUCKET") ||
+      raise("environment variable AWS_S3_BUCKET is missing.")
+
   config :my_chat_app, MyChatAppWeb.Endpoint,
     url: [host: host, port: 443, scheme: "https"],
     http: [

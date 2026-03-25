@@ -41,6 +41,45 @@ defmodule MyChatApp.Chat.MessagesTest do
 
       assert %{username: ["can't be blank"]} = errors_on(changeset)
     end
+
+    test "stores and returns attachment_url" do
+      url = "https://bucket.s3.us-east-1.amazonaws.com/chat/uuid.png"
+
+      assert {:ok, msg} = Messages.insert(%{
+        room_id: room("att"), username: "alice", content: "look",
+        type: "user", attachment_url: url
+      })
+
+      assert msg.attachment_url == url
+    end
+
+    test "allows attachment-only message with empty content" do
+      url = "https://bucket.s3.us-east-1.amazonaws.com/chat/uuid.jpg"
+
+      assert {:ok, msg} = Messages.insert(%{
+        room_id: room("att-only"), username: "alice", content: "",
+        type: "user", attachment_url: url
+      })
+
+      assert msg.attachment_url == url
+      assert msg.content == ""
+    end
+
+    test "content is required when there is no attachment_url" do
+      assert {:error, changeset} = Messages.insert(%{
+        room_id: room("no-att"), username: "alice", type: "user"
+      })
+
+      assert %{content: ["can't be blank"]} = errors_on(changeset)
+    end
+
+    test "returned map includes inserted_at" do
+      assert {:ok, msg} = Messages.insert(%{
+        room_id: room("ts"), username: "alice", content: "hi", type: "user"
+      })
+
+      assert %NaiveDateTime{} = msg.inserted_at
+    end
   end
 
   describe "list_recent/2" do

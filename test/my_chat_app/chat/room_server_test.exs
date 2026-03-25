@@ -128,6 +128,108 @@ defmodule MyChatApp.Chat.RoomServerTest do
     end
   end
 
+  describe "post_message/2 with attachment" do
+    test "stores attachment_url on the message" do
+      room_id = start_room(unique_room())
+      url = "https://bucket.s3.us-east-1.amazonaws.com/chat/uuid.png"
+
+      assert :ok = RoomServer.post_message(room_id, %{
+        username: "alice", content: "", type: "user", attachment_url: url
+      })
+
+      state = RoomServer.get_state(room_id)
+      assert hd(state.messages).attachment_url == url
+    end
+
+    test "message map includes inserted_at" do
+      room_id = start_room(unique_room())
+
+      RoomServer.post_message(room_id, %{username: "alice", content: "hi", type: "user"})
+
+      state = RoomServer.get_state(room_id)
+      assert %NaiveDateTime{} = hd(state.messages).inserted_at
+    end
+  end
+
+  describe "toggle_reaction/4" do
+    test "adds a reaction to a message" do
+      room_id = start_room(unique_room())
+      Phoenix.PubSub.subscribe(MyChatApp.PubSub, "room:#{room_id}")
+      :ok = RoomServer.post_message(room_id, %{username: "alice", content: "hi", type: "user"})
+      assert_receive {:new_message, msg}
+      msg_id = msg.id
+
+      RoomServer.toggle_reaction(room_id, msg_id, "👍", "bob")
+
+      assert_receive {:reactions_updated, ^msg_id, %{"👍" => users}}
+      assert "bob" in users
+    end
+
+    test "removes a reaction when toggled off" do
+      room_id = start_room(unique_room())
+      Phoenix.PubSub.subscribe(MyChatApp.PubSub, "room:#{room_id}")
+      :ok = RoomServer.post_message(room_id, %{username: "alice", content: "hi", type: "user"})
+      assert_receive {:new_message, msg}
+      msg_id = msg.id
+
+      RoomServer.toggle_reaction(room_id, msg_id, "👍", "bob")
+      assert_receive {:reactions_updated, ^msg_id, _}
+      RoomServer.toggle_reaction(room_id, msg_id, "👍", "bob")
+
+      assert_receive {:reactions_updated, ^msg_id, reactions}
+      assert Map.get(reactions, "👍", []) == []
+    end
+
+    test "multiple users can react with the same emoji" do
+      room_id = start_room(unique_room())
+      Phoenix.PubSub.subscribe(MyChatApp.PubSub, "room:#{room_id}")
+      :ok = RoomServer.post_message(room_id, %{username: "alice", content: "hi", type: "user"})
+      assert_receive {:new_message, msg}
+      msg_id = msg.id
+
+      RoomServer.toggle_reaction(room_id, msg_id, "❤️", "alice")
+      assert_receive {:reactions_updated, ^msg_id, _}
+      RoomServer.toggle_reaction(room_id, msg_id, "❤️", "bob")
+
+      assert_receive {:reactions_updated, ^msg_id, %{"❤️" => users}}
+      assert "alice" in users
+      assert "bob" in users
+    end
+
+    test "different emojis are tracked independently" do
+      room_id = start_room(unique_room())
+      Phoenix.PubSub.subscribe(MyChatApp.PubSub, "room:#{room_id}")
+      :ok = RoomServer.post_message(room_id, %{username: "alice", content: "hi", type: "user"})
+      assert_receive {:new_message, msg}
+      msg_id = msg.id
+
+      RoomServer.toggle_reaction(room_id, msg_id, "👍", "alice")
+      assert_receive {:reactions_updated, ^msg_id, _}
+      RoomServer.toggle_reaction(room_id, msg_id, "😂", "bob")
+
+      assert_receive {:reactions_updated, ^msg_id, reactions}
+      assert Map.has_key?(reactions, "👍")
+      assert Map.has_key?(reactions, "😂")
+    end
+
+    test "broadcasts :reactions_updated to the room topic" do
+      room_id = start_room(unique_room())
+      Phoenix.PubSub.subscribe(MyChatApp.PubSub, "room:#{room_id}")
+      :ok = RoomServer.post_message(room_id, %{username: "alice", content: "hi", type: "user"})
+      assert_receive {:new_message, msg}
+      msg_id = msg.id
+
+      RoomServer.toggle_reaction(room_id, msg_id, "👍", "alice")
+
+      assert_receive {:reactions_updated, ^msg_id, reactions}
+      assert is_map(reactions)
+    end
+
+    test "silently ignores cast to a non-existent room" do
+      assert :ok = RoomServer.toggle_reaction("no-such-room", 1, "👍", "alice")
+    end
+  end
+
   describe "init/1 — seeding from database" do
     test "seeds in-memory state from persisted messages on start" do
       room_id = unique_room()
