@@ -3,6 +3,8 @@ defmodule MyChatAppWeb.ChatLive do
 
   alias MyChatApp.Chat.{RoomServer, RoomManager, Presence, Messages}
 
+  @reaction_emojis ["👍", "❤️", "😂", "😮", "😢"]
+
   @typing_timeout 2_000
 
   def mount(%{"id" => room_id} = params, _session, socket) do
@@ -47,7 +49,8 @@ defmodule MyChatAppWeb.ChatLive do
           draft:             "",
           typing_ref:        nil,
           oldest_message_id: oldest_id,
-          all_loaded:        length(state.messages) < 50
+          all_loaded:        length(state.messages) < 50,
+          reaction_emojis:   @reaction_emojis
         )}
     end
   end
@@ -93,6 +96,11 @@ defmodule MyChatAppWeb.ChatLive do
     end
   end
 
+  def handle_event("react", %{"id" => id, "emoji" => emoji}, socket) do
+    RoomServer.toggle_reaction(socket.assigns.room_id, String.to_integer(id), emoji, socket.assigns.username)
+    {:noreply, socket}
+  end
+
   def handle_event("typing", %{"value" => text}, socket) do
     %{room_id: room_id, username: username, typing_ref: ref} = socket.assigns
 
@@ -123,6 +131,14 @@ defmodule MyChatAppWeb.ChatLive do
   def handle_info(:stop_typing, socket) do
     RoomServer.set_typing(socket.assigns.room_id, socket.assigns.username, false)
     {:noreply, assign(socket, typing_ref: nil)}
+  end
+
+  def handle_info({:reactions_updated, message_id, reactions}, socket) do
+    messages =
+      Enum.map(socket.assigns.messages, fn msg ->
+        if msg.id == message_id, do: Map.put(msg, :reactions, reactions), else: msg
+      end)
+    {:noreply, assign(socket, messages: messages)}
   end
 
   def handle_info(%Phoenix.Socket.Broadcast{event: "presence_diff"}, socket) do
@@ -166,7 +182,7 @@ defmodule MyChatAppWeb.ChatLive do
           <%= if msg.type == "system" do %>
             <div class="text-center text-xs text-gray-600 py-1"><%= msg.content %></div>
           <% else %>
-            <div class={["flex gap-3", if(msg.username == @username, do: "flex-row-reverse", else: "")]}>
+            <div class={["flex gap-3 group", if(msg.username == @username, do: "flex-row-reverse", else: "")]}>
               <div class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold shrink-0">
                 <%= String.first(msg.username) |> String.upcase() %>
               </div>
@@ -178,7 +194,53 @@ defmodule MyChatAppWeb.ChatLive do
                     do: "bg-indigo-600 rounded-tr-sm",
                     else: "bg-gray-800 rounded-tl-sm")
                 ]}>
-                  <%= msg.content %>
+                  <%= for part <- String.split(msg.content, ~r/(@\w+)/, include_captures: true) do %>
+                    <%= if String.starts_with?(part, "@") do %>
+                      <span class={[
+                        "font-semibold",
+                        if(String.downcase(part) == "@#{String.downcase(@username)}",
+                          do: "bg-indigo-500/40 text-white rounded px-0.5",
+                          else: "text-indigo-400")
+                      ]}><%= part %></span>
+                    <% else %>
+                      <%= part %>
+                    <% end %>
+                  <% end %>
+                </div>
+                <%!-- Timestamp --%>
+                <%= if msg[:inserted_at] do %>
+                  <span class="text-xs text-gray-600">
+                    <%= Calendar.strftime(msg.inserted_at, "%H:%M") %>
+                  </span>
+                <% end %>
+                <%!-- Reaction pills --%>
+                <div class="flex flex-wrap gap-1 mt-1">
+                  <%= for {emoji, users} <- Map.get(msg, :reactions, %{}) do %>
+                    <button
+                      phx-click="react"
+                      phx-value-id={msg.id}
+                      phx-value-emoji={emoji}
+                      class={[
+                        "flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors",
+                        if(@username in users,
+                          do: "bg-indigo-600/30 border-indigo-500 text-white",
+                          else: "bg-gray-800 border-white/10 text-gray-400 hover:border-white/30")
+                      ]}
+                    >
+                      <%= emoji %> <%= length(users) %>
+                    </button>
+                  <% end %>
+                  <%!-- Emoji picker --%>
+                  <div class="flex gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <%= for emoji <- @reaction_emojis do %>
+                      <button
+                        phx-click="react"
+                        phx-value-id={msg.id}
+                        phx-value-emoji={emoji}
+                        class="text-xs px-1 py-0.5 rounded hover:bg-gray-700 text-gray-500 hover:text-white transition-colors"
+                      ><%= emoji %></button>
+                    <% end %>
+                  </div>
                 </div>
               </div>
             </div>

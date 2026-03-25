@@ -14,15 +14,18 @@ defmodule MyChatApp.Chat.RoomServer do
   def get_state(room_id),          do: call(room_id, :get_state)
   def post_message(room_id, msg),  do: call(room_id, {:post_message, msg})
   def set_typing(room_id, user, typing?), do: cast(room_id, {:typing, user, typing?})
+  def toggle_reaction(room_id, message_id, emoji, username),
+    do: cast(room_id, {:react, message_id, emoji, username})
 
   # --- Callbacks ---
 
   def init(room_id) do
     messages = Messages.list_recent(room_id, @max_messages)
     state = %{
-      room_id:  room_id,
-      messages: Enum.reverse(messages),
-      typing:   MapSet.new()
+      room_id:   room_id,
+      messages:  Enum.reverse(messages),
+      typing:    MapSet.new(),
+      reactions: %{}
     }
     {:ok, state}
   end
@@ -57,6 +60,22 @@ defmodule MyChatApp.Chat.RoomServer do
     {:noreply, new_state}
   end
 
+  def handle_cast({:react, message_id, emoji, username}, state) do
+    reactions =
+      Map.update(state.reactions, message_id, %{emoji => MapSet.new([username])}, fn emojis ->
+        Map.update(emojis, emoji, MapSet.new([username]), fn users ->
+          if MapSet.member?(users, username),
+            do: MapSet.delete(users, username),
+            else: MapSet.put(users, username)
+        end)
+        |> Map.reject(fn {_e, users} -> MapSet.size(users) == 0 end)
+      end)
+
+    msg_reactions = Map.get(reactions, message_id, %{}) |> serialize_reactions()
+    broadcast(state.room_id, {:reactions_updated, message_id, msg_reactions})
+    {:noreply, %{state | reactions: reactions}}
+  end
+
   # --- Private ---
 
   defp public_state(state) do
@@ -65,6 +84,10 @@ defmodule MyChatApp.Chat.RoomServer do
       messages: Enum.reverse(state.messages),  # oldest first
       typing:   MapSet.to_list(state.typing)
     }
+  end
+
+  defp serialize_reactions(emojis) do
+    Map.new(emojis, fn {emoji, users} -> {emoji, MapSet.to_list(users)} end)
   end
 
   defp broadcast(room_id, event) do

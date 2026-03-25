@@ -2,12 +2,17 @@ defmodule MyChatAppWeb.RoomsLive do
   use MyChatAppWeb, :live_view
 
   def mount(_params, _session, socket) do
+    rooms = MyChatApp.Chat.RoomManager.list_rooms()
+
     if connected?(socket) do
       Phoenix.PubSub.subscribe(MyChatApp.PubSub, "rooms:lobby")
+      Enum.each(rooms, fn room ->
+        Phoenix.PubSub.subscribe(MyChatApp.PubSub, "room:#{room.id}")
+      end)
     end
 
-    rooms = MyChatApp.Chat.RoomManager.list_rooms()
-    {:ok, assign(socket, rooms: rooms, username: nil, new_room_name: "", new_room_desc: "", error: nil)}
+    unread = Map.new(rooms, fn r -> {r.id, 0} end)
+    {:ok, assign(socket, rooms: rooms, username: nil, new_room_name: "", new_room_desc: "", error: nil, unread: unread)}
   end
 
   def handle_event("set_username", %{"username" => name}, socket) do
@@ -24,6 +29,11 @@ defmodule MyChatAppWeb.RoomsLive do
       {:ok, id}               -> {:noreply, push_navigate(socket, to: "/rooms/#{id}?username=#{socket.assigns.username}")}
       {:error, :already_exists} -> {:noreply, assign(socket, error: "Room already exists")}
     end
+  end
+
+  def handle_info({:new_message, msg}, socket) do
+    unread = Map.update(socket.assigns.unread, msg.room_id, 1, & &1 + 1)
+    {:noreply, assign(socket, unread: unread)}
   end
 
   def handle_info({:rooms_updated, rooms}, socket) do
@@ -70,7 +80,14 @@ defmodule MyChatAppWeb.RoomsLive do
               ]}
             >
               <div>
-                <p class="font-medium"><%= room.name %></p>
+                <div class="flex items-center gap-2">
+                  <p class="font-medium"><%= room.name %></p>
+                  <%= if Map.get(@unread, room.id, 0) > 0 do %>
+                    <span class="bg-indigo-600 text-white text-xs font-bold rounded-full px-2 py-0.5">
+                      <%= Map.get(@unread, room.id) %>
+                    </span>
+                  <% end %>
+                </div>
                 <p class="text-sm text-gray-400"><%= room.description %></p>
               </div>
               <span class="text-xs text-gray-500">Join →</span>
