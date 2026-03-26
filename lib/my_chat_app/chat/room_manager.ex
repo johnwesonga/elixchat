@@ -13,6 +13,7 @@ defmodule MyChatApp.Chat.RoomManager do
   def start_link(_), do: GenServer.start_link(__MODULE__, %{}, name: __MODULE__)
 
   def list_rooms, do: GenServer.call(__MODULE__, :list_rooms)
+  def get_room(id), do: GenServer.call(__MODULE__, {:get_room, id})
   def create_room(name, desc), do: GenServer.call(__MODULE__, {:create_room, name, desc})
   def room_exists?(id), do: GenServer.call(__MODULE__, {:exists?, id})
 
@@ -36,6 +37,10 @@ defmodule MyChatApp.Chat.RoomManager do
   def handle_call(:list_rooms, _from, state) do
     rooms = state.rooms |> Map.values() |> Enum.sort_by(& &1.name)
     {:reply, rooms, state}
+  end
+
+  def handle_call({:get_room, id}, _from, state) do
+    {:reply, Map.get(state.rooms, id), state}
   end
 
   def handle_call({:create_room, name, desc}, _from, state) do

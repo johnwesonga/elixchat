@@ -36,6 +36,8 @@ defmodule MyChatAppWeb.ChatLive do
         })
       end
 
+      room  = RoomManager.get_room(room_id)
+
       state = case RoomServer.get_state(room_id) do
         {:error, _} -> %{messages: [], typing: []}
         s           -> s
@@ -50,6 +52,8 @@ defmodule MyChatAppWeb.ChatLive do
         socket
         |> assign(
           room_id:           room_id,
+          room_name:         room.name,
+          room_description:  room[:description],
           username:          username,
           messages:          state.messages,
           typing:            state.typing,
@@ -212,7 +216,12 @@ defmodule MyChatAppWeb.ChatLive do
         <div class="flex items-center gap-3">
           <.link navigate="/rooms" class="text-gray-400 hover:text-white text-sm">← Rooms</.link>
           <span class="text-gray-600">/</span>
-          <h1 class="font-semibold">#<%= @room_id %></h1>
+          <div>
+            <h1 class="font-semibold leading-tight"><%= @room_name %></h1>
+            <%= if @room_description do %>
+              <p class="text-xs text-gray-400 leading-tight"><%= @room_description %></p>
+            <% end %>
+          </div>
         </div>
         <div class="flex items-center gap-2 text-sm text-gray-400">
           <span class="w-2 h-2 rounded-full bg-green-400 inline-block"></span>
