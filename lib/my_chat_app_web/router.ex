@@ -17,7 +17,8 @@ defmodule MyChatAppWeb.Router do
   scope "/", MyChatAppWeb do
     pipe_through :browser
 
-    get "/", PageController, :home
+    # get "/", PageController, :home
+    live "/", RoomsLive
     live "/rooms", RoomsLive
     live "/rooms/:id", ChatLive
   end

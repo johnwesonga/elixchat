@@ -6,6 +6,12 @@ defmodule MyChatAppWeb.ChatLive do
 
   @reaction_emojis ["👍", "❤️", "😂", "😮", "😢"]
 
+  @avatar_colors ~w(
+    #ef4444 #f97316 #f59e0b #84cc16
+    #22c55e #14b8a6 #3b82f6 #8b5cf6
+    #ec4899 #06b6d4 #6366f1 #f43f5e
+  )
+
   @typing_timeout 2_000
 
   def mount(%{"id" => room_id} = params, _session, socket) do
@@ -177,9 +183,23 @@ defmodule MyChatAppWeb.ChatLive do
 
   # --- Helpers ---
 
-  defp upload_error_to_string(:too_large),     do: "File is too large (max 10 MB)"
-  defp upload_error_to_string(:too_many_files), do: "Only one file at a time"
-  defp upload_error_to_string(:not_accepted),  do: "Unsupported file type"
+  defp avatar_color(username) do
+    index = username |> String.to_charlist() |> Enum.sum() |> rem(length(@avatar_colors))
+    Enum.at(@avatar_colors, index)
+  end
+
+  defp avatar_initials(username) do
+    username
+    |> String.split()
+    |> Enum.take(2)
+    |> Enum.map(&String.first/1)
+    |> Enum.join()
+    |> String.upcase()
+  end
+
+  defp upload_error_to_string(:too_large),      do: "File is too large (max 10 MB)"
+  defp upload_error_to_string(:too_many_files),  do: "Only one file at a time"
+  defp upload_error_to_string(:not_accepted),    do: "Unsupported file type"
 
   # --- Render ---
 
@@ -216,8 +236,9 @@ defmodule MyChatAppWeb.ChatLive do
             <div class="text-center text-xs text-gray-600 py-1"><%= msg.content %></div>
           <% else %>
             <div class={["flex gap-3 group", if(msg.username == @username, do: "flex-row-reverse", else: "")]}>
-              <div class="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-xs font-bold shrink-0">
-                <%= String.first(msg.username) |> String.upcase() %>
+              <div class="w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold shrink-0 text-white"
+                   style={"background-color: #{avatar_color(msg.username)}"}>
+                <%= avatar_initials(msg.username) %>
               </div>
               <div class={["max-w-xs", if(msg.username == @username, do: "items-end", else: "items-start"), "flex flex-col gap-1"]}>
                 <span class="text-xs text-gray-500"><%= msg.username %></span>
